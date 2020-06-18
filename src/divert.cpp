@@ -113,6 +113,86 @@ void divertmode_update(byte newmode)
   }
 }
 
+void divert_set_charge_rate(int new_charge_rate, int current_charge_rate)
+{
+  if(new_charge_rate >= min_charge_current)
+  {
+    // Cap the charge rate at the configured maximum
+    new_charge_rate = min(new_charge_rate, static_cast<int>(max_charge_current));
+
+    // Change the charge rate is needed
+    if(current_charge_rate != new_charge_rate)
+    {
+      // Set charge rate via RAPI
+      bool chargeRateSet = false;
+      // Try and set current with new API with volatile flag (don't save the current rate to EEPROM)
+      if(0 == rapiSender.sendCmdSync(String(F("$SC ")) + String(new_charge_rate) + String(F(" V")))) {
+        chargeRateSet = true;
+      } else if(0 == rapiSender.sendCmdSync(String(F("$SC ")) + String(new_charge_rate))) {
+        // Fallback to old API
+        chargeRateSet = true;
+      }
+
+      if(true == chargeRateSet)
+      {
+        pilot = charge_rate = new_charge_rate;
+        DBUGF("Charge rate set to %d", charge_rate);
+      }
+    }
+
+    // If charge rate > min current and EVSE is sleeping then start charging
+    if (state == OPENEVSE_STATE_SLEEPING)
+    {
+      DBUGLN(F("Wake up EVSE"));
+      bool chargeStarted = false;
+
+      // Check if the timer is enabled, we need to do a bit of hackery if it is
+      if(0 == rapiSender.sendCmdSync("$GD"))
+      {
+        if(rapiSender.getTokenCnt() >= 5 &&
+            (0 != String(rapiSender.getToken(1)).toInt() ||
+            0 != String(rapiSender.getToken(2)).toInt() ||
+            0 != String(rapiSender.getToken(3)).toInt() ||
+            0 != String(rapiSender.getToken(4)).toInt()))
+        {
+          // Timer is enabled so we need to emulate a button press to work around
+          // an issue with $FE not working
+          if(false == chargeStarted && 0 == rapiSender.sendCmdSync(F("$F1"))) {
+            DBUGLN(F("Starting charge with button press"));
+            chargeStarted = true;
+          }
+        }
+      }
+
+      if(false == chargeStarted && 0 == rapiSender.sendCmdSync(F("$FE"))) {
+        DBUGLN(F("Starting charge"));
+        chargeStarted = true;
+      }
+
+      if(chargeStarted)
+      {
+        min_charge_end = divertmode_get_time() + divert_min_charge_time;
+        divert_active = true;
+      }
+    }
+  }
+  else if(OPENEVSE_STATE_SLEEPING != state)
+  {
+      if(divert_active && divertmode_get_time() >= min_charge_end)
+      {
+        if(0 == rapiSender.sendCmdSync(F("$FS")))
+        {
+          DBUGLN(F("Charge Stopped"));
+          divert_active = false;
+
+          if(0 == rapiSender.sendCmdSync(String(F("$SC ")) + String(max_charge_current))) {
+            DBUGF("Restore max I: %d", max_charge_current);
+          }
+        }
+      }
+    }
+  }
+
 void divert_current_loop()
 {
   Profile_Start(divert_current_loop);
@@ -208,6 +288,8 @@ void divert_update_state()
     }
 
     DBUGVAR(charge_rate);
+    divert_set_charge_rate(charge_rate, current_charge_rate);
+    event["divert_active"] = divert_active;
 
     // the smoothed current suffices to ensure a sufficient ratio of PV power
     if (smoothed_available_current >= (min_charge_current * min(1.0, divert_PV_ratio)))
