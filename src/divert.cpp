@@ -258,11 +258,17 @@ void divert_current_loop()
 {
   Profile_Start(divert_current_loop);
 
+  const unsigned long now = millis();
   if (divert_message_timeout > 0
-      && millis() - lastUpdate > divert_message_timeout)
+      && now - lastUpdate > divert_message_timeout * 1000)
   {
+    DBUGF("Divert timeout: last update %lu, now %lu, age %lu",
+      lastUpdate, now, now - lastUpdate);
     // We haven't received an update in a long time; go to safe mode
     divert_set_charge_rate(divert_safe_current);
+
+    // Don't re-check too often
+    lastUpdate = now;
   }
 
   Profile_End(divert_current_loop, 5);
