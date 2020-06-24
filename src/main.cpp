@@ -173,6 +173,7 @@ loop() {
             state = evse_state;
             ledManager.setEvseState(evse_state);
           });
+          divert_current_setup();
         } else {
           DBUGLN("OpenEVSE not responding or not connected");
         }

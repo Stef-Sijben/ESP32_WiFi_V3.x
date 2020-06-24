@@ -7,8 +7,9 @@
 
 #include <Arduino.h>
 
-#define DIVERT_MODE_NORMAL      1
-#define DIVERT_MODE_ECO         2
+#define DIVERT_MODE_UNCONFIGURED 0
+#define DIVERT_MODE_NORMAL       1
+#define DIVERT_MODE_ECO          2
 
 // global variable
 extern byte divertmode;
@@ -24,7 +25,7 @@ void divertmode_update(byte divertmode);
 // Set charge rate depending on charge mode and solarPV output
 void divert_update_state();
 
-//
+void divert_current_setup();
 void divert_current_loop();
 
 #endif // _EMONESP_DIVERT_H

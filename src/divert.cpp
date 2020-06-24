@@ -36,7 +36,7 @@
 // This avoids wear on the relay and the car.
 
 // Default to normal charging unless set. Divert mode always defaults back to 1 if unit is reset (divertmode not saved in EEPROM)
-byte divertmode = DIVERT_MODE_NORMAL;     // default normal mode
+byte divertmode = DIVERT_MODE_UNCONFIGURED;
 int solar = 0;
 int grid_ie = 0;
 int min_charge_current = 6;      // TO DO: set to be min charge current as set on the OpenEVSE e.g. "$GC min-current max-current"
@@ -45,9 +45,8 @@ int charge_rate = 0;
 int last_state = OPENEVSE_STATE_INVALID;
 uint32_t lastUpdate = 0;
 
-
 double available_current = 0;
-double smoothed_available_current = 0;
+double smoothed_available_current = min_charge_current;
 
 time_t min_charge_end = 0;
 
@@ -63,6 +62,32 @@ time_t __attribute__((weak)) divertmode_get_time()
   return now.tv_sec;
 }
 
+
+// Read pilot current and limits from EVSE and update internal state
+// Returns whether the read was successful
+bool update_charge_rates() {
+  // $GC response: $OK minamps hmaxamps pilotamps cmaxamps
+  // cmaxamps was introduced in RAPI 5.1.0
+  if(0 == rapiSender.sendCmdSync(F("$GC"))) {
+    const char *max_current_configured = rapiSender.getToken(4);
+    if (max_current_configured) {
+      max_charge_current = String(max_current_configured).toInt();
+    } else {
+      // cmaxamps not present in RAPI < 5.1.0, use hmaxamps instead
+      max_charge_current = String(rapiSender.getToken(2)).toInt();
+    }
+    min_charge_current = String(rapiSender.getToken(1)).toInt();
+
+    charge_rate = String(rapiSender.getToken(3)).toInt();
+    pilot = charge_rate;
+
+    DBUGF("Read pilot current %d, charge limits %d-%d",
+        charge_rate, min_charge_current, max_charge_current);
+    return true;
+  }
+  return false;
+}
+
 // Update divert mode e.g. Normal / Eco
 // function called when divert mode is changed
 void divertmode_update(byte newmode)
@@ -71,6 +96,9 @@ void divertmode_update(byte newmode)
   if(divertmode != newmode)
   {
     divertmode = newmode;
+
+    // read the configured values from the EVSE
+    update_charge_rates();
 
     // restore max charge current if normal mode or zero if eco mode
     switch(divertmode)
@@ -84,14 +112,13 @@ void divertmode_update(byte newmode)
       case DIVERT_MODE_ECO:
         charge_rate = 0;
         available_current = 0;
-        smoothed_available_current = 0;
+        // Start at min current so we can switch on or off immediately on the first message.
+        // This avoids getting stuck in sleep for a while because the smoothed value has to ramp up first.
+        smoothed_available_current = min_charge_current;
         min_charge_end = 0;
 
-        // Read the current charge current, assume this is the max set by the user
-        if(0 == rapiSender.sendCmdSync(F("$GE"))) {
-          max_charge_current = String(rapiSender.getToken(1)).toInt();
-          DBUGF("Read max I: %d", max_charge_current);
-        }
+        // Read the max charge current from the EVSE
+        update_charge_rates();
         if(OPENEVSE_STATE_SLEEPING != state)
         {
           if(0 == rapiSender.sendCmdSync(config_pause_uses_disabled() ? F("$FD") : F("$FS")))
@@ -199,6 +226,22 @@ void divert_set_charge_rate(int new_charge_rate)
   }
 }
 
+
+void divert_current_setup()
+{
+  Profile_Start(divert_current_setup);
+
+  if (divertmode == DIVERT_MODE_UNCONFIGURED) {
+    divertmode_update(DIVERT_MODE_NORMAL);
+
+    // Allow some time for the first message to come in before we go to safe mode
+    lastUpdate = millis();
+  }
+
+  Profile_End(divert_current_setup, 5);
+}
+
+
 void divert_current_loop()
 {
   Profile_Start(divert_current_loop);
@@ -224,10 +267,7 @@ void divert_update_state()
   if (divertmode == DIVERT_MODE_ECO)
   {
     // Read the current charge rate
-    if(0 == rapiSender.sendCmdSync(F("$GE"))) {
-      charge_rate = String(rapiSender.getToken(1)).toInt();
-      DBUGVAR(charge_rate);
-    }
+    update_charge_rates();
 
     // Calculate current
     if (mqtt_grid_ie != "")
