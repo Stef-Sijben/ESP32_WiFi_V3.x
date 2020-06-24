@@ -39,11 +39,14 @@
 byte divertmode = DIVERT_MODE_UNCONFIGURED;
 int solar = 0;
 int grid_ie = 0;
-int min_charge_current = 6;      // TO DO: set to be min charge current as set on the OpenEVSE e.g. "$GC min-current max-current"
-int max_charge_current = 32;     // TO DO: to be set to be max charge current as set on the OpenEVSE e.g. "$GC min-current max-current"
+int max_grid_current = 0;
+int min_charge_current = 6;  // The actual value will be read from the EVSE
+int max_charge_current = 32; // The actual value will be read from the EVSE
+int divert_safe_current = 0; // What safe current to set when the updates time out. 0 to stop charging
 int charge_rate = 0;
 int last_state = OPENEVSE_STATE_INVALID;
 uint32_t lastUpdate = 0;
+unsigned long divert_message_timeout = 0;
 
 double available_current = 0;
 double smoothed_available_current = min_charge_current;
@@ -62,6 +65,13 @@ time_t __attribute__((weak)) divertmode_get_time()
   return now.tv_sec;
 }
 
+// Return whether we are monitoring and diverting current at the moment.
+// This can be either due to eco mode or grid current limiting.
+bool divertmode_enabled()
+{
+  return divertmode == DIVERT_MODE_ECO
+    || (divertmode == DIVERT_MODE_NORMAL && max_grid_current > 0);
+}
 
 // Read pilot current and limits from EVSE and update internal state
 // Returns whether the read was successful
@@ -106,6 +116,11 @@ void divertmode_update(byte newmode)
       case DIVERT_MODE_NORMAL:
         // Restore the max charge current
         rapiSender.sendCmdSync(String(F("$SC ")) + String(max_charge_current));
+
+        // Assume we can charge at max current,
+        // we will be corrected later if this is not the case.
+        smoothed_available_current = max_charge_current;
+
         DBUGF("Restore max I: %d", max_charge_current);
         break;
 
@@ -246,6 +261,13 @@ void divert_current_loop()
 {
   Profile_Start(divert_current_loop);
 
+  if (divert_message_timeout > 0
+      && millis() - lastUpdate > divert_message_timeout)
+  {
+    // We haven't received an update in a long time; go to safe mode
+    divert_set_charge_rate(divert_safe_current);
+  }
+
   Profile_End(divert_current_loop, 5);
 } //end divert_current_loop
 
@@ -254,8 +276,10 @@ void divert_update_state()
 {
   Profile_Start(divert_update_state);
 
+  const bool enabled = divertmode_enabled();
   StaticJsonDocument<128> event;
   event["divert_update"] = 0;
+  event["divert_enabled"] = enabled;
 
   if(mqtt_grid_ie != "") {
     event["grid_ie"] = grid_ie;
@@ -263,8 +287,7 @@ void divert_update_state()
     event["solar"] = solar;
   }
 
-  // If divert mode = Eco (2)
-  if (divertmode == DIVERT_MODE_ECO)
+  if (enabled)
   {
     // Read the current charge rate
     update_charge_rates();
@@ -280,6 +303,12 @@ void divert_update_state()
       DBUGVAR(voltage);
       double Igrid_ie = (double)grid_ie / voltage;
       DBUGVAR(Igrid_ie);
+
+      // In normal mode with grid current limiting, set a different target
+      // Add the configured maximum current as a virtual export
+      if (divertmode == DIVERT_MODE_NORMAL) {
+        Igrid_ie -= max_grid_current;
+      }
 
       // Subtract the current charge the EV is using from the Grid IE
       if(0 == rapiSender.sendCmdSync(F("$GG"))) {
@@ -338,7 +367,7 @@ void divert_update_state()
     event["voltage"] = voltage;
     event["available_current"] = available_current;
     event["smoothed_available_current"] = smoothed_available_current;
-  } // end ecomode
+  } // end divertmode_enabled()
 
   event_send(event);
 

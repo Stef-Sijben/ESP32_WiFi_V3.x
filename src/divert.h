@@ -15,8 +15,11 @@
 extern byte divertmode;
 extern int solar;
 extern int grid_ie;
+extern int max_grid_current;
+extern int divert_safe_current;
 extern int charge_rate;
 extern uint32_t lastUpdate;
+extern unsigned long divert_message_timeout;
 extern bool divert_active;
 
 // Change mode
