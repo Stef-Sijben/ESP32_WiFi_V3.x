@@ -50,6 +50,9 @@ extern double divert_PV_ratio;
 extern double divert_attack_smoothing_factor;
 extern double divert_decay_smoothing_factor;
 extern uint32_t divert_min_charge_time;
+extern int divert_max_grid_current;
+extern int divert_safe_current;
+extern uint32_t divert_message_timeout;
 
 // 24-bits of Flags
 extern uint32_t flags;

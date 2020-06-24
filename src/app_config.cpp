@@ -60,6 +60,9 @@ double divert_PV_ratio;
 double divert_attack_smoothing_factor;
 double divert_decay_smoothing_factor;
 uint32_t divert_min_charge_time;
+int divert_max_grid_current;
+int divert_safe_current;
+uint32_t divert_message_timeout;
 
 // Tesla Client settings
 String tesla_username;
@@ -114,6 +117,9 @@ ConfigOpt *opts[] =
   new ConfigOptDefenition<double>(divert_attack_smoothing_factor, 0.4, "divert_attack_smoothing_factor", "da"),
   new ConfigOptDefenition<double>(divert_decay_smoothing_factor, 0.05, "divert_decay_smoothing_factor", "dd"),
   new ConfigOptDefenition<uint32_t>(divert_min_charge_time, (10 * 60), "divert_min_charge_time", "dt"),
+  new ConfigOptDefenition<int>(divert_max_grid_current, 0, "divert_max_grid_current", "dm"),
+  new ConfigOptDefenition<int>(divert_safe_current, 0, "divert_safe_current", "ds"),
+  new ConfigOptDefenition<uint32_t>(divert_message_timeout, 0, "divert_message_timeout", "do"),
 
 // Tesla client settings
   new ConfigOptDefenition<String>(tesla_username, "", "tesla_username", "tu"),

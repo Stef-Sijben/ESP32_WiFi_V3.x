@@ -39,14 +39,11 @@
 byte divertmode = DIVERT_MODE_UNCONFIGURED;
 int solar = 0;
 int grid_ie = 0;
-int max_grid_current = 0;
 int min_charge_current = 6;  // The actual value will be read from the EVSE
 int max_charge_current = 32; // The actual value will be read from the EVSE
-int divert_safe_current = 0; // What safe current to set when the updates time out. 0 to stop charging
 int charge_rate = 0;
 int last_state = OPENEVSE_STATE_INVALID;
 uint32_t lastUpdate = 0;
-unsigned long divert_message_timeout = 0;
 
 double available_current = 0;
 double smoothed_available_current = min_charge_current;
@@ -70,7 +67,7 @@ time_t __attribute__((weak)) divertmode_get_time()
 bool divertmode_enabled()
 {
   return divertmode == DIVERT_MODE_ECO
-    || (divertmode == DIVERT_MODE_NORMAL && max_grid_current > 0);
+    || (divertmode == DIVERT_MODE_NORMAL && divert_max_grid_current > 0);
 }
 
 // Read pilot current and limits from EVSE and update internal state
@@ -307,7 +304,7 @@ void divert_update_state()
       // In normal mode with grid current limiting, set a different target
       // Add the configured maximum current as a virtual export
       if (divertmode == DIVERT_MODE_NORMAL) {
-        Igrid_ie -= max_grid_current;
+        Igrid_ie -= divert_max_grid_current;
       }
 
       // Subtract the current charge the EV is using from the Grid IE
